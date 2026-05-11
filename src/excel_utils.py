@@ -1,6 +1,7 @@
 import os
 import shutil
 import tempfile
+import zipfile
 
 from pathlib import Path
 from datetime import datetime
@@ -70,6 +71,7 @@ def remove_excel_tables(sheet):
         table_names = list(sheet.tables.keys())
 
         for table_name in table_names:
+
             del sheet.tables[table_name]
 
     except Exception:
@@ -116,7 +118,6 @@ def remove_non_matching_rows(
 
             rows_to_delete.append(row)
 
-    # deletar em blocos reversos
     for row in reversed(rows_to_delete):
 
         sheet.delete_rows(row)
@@ -131,11 +132,12 @@ def generate_filtered_files(
     status_text
 ):
 
-    downloads_path = Path.home() / "Downloads"
+    output_dir = Path("output")
+
+    output_dir.mkdir(exist_ok=True)
 
     total = len(values)
 
-    # cria uma cópia limpa inicial
     base_temp = tempfile.NamedTemporaryFile(
         delete=False,
         suffix=".xlsx"
@@ -148,13 +150,14 @@ def generate_filtered_files(
         base_temp.name
     )
 
+    generated_files = []
+
     for index, value in enumerate(values):
 
         status_text.text(
             f"Gerando arquivo: {value}"
         )
 
-        # cria cópia temporária individual
         temp_copy = tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".xlsx"
@@ -202,11 +205,13 @@ def generate_filtered_files(
             f"{filter_column}_{safe_value}_{month}_{year}.xlsx"
         )
 
-        final_path = downloads_path / filename
+        final_path = output_dir / filename
 
         workbook.save(final_path)
 
         workbook.close()
+
+        generated_files.append(final_path)
 
         os.remove(temp_copy.name)
 
@@ -218,6 +223,23 @@ def generate_filtered_files(
 
     os.remove(base_temp.name)
 
+    zip_path = output_dir / "arquivos_filtrados.zip"
+
+    with zipfile.ZipFile(
+        zip_path,
+        "w",
+        zipfile.ZIP_DEFLATED
+    ) as zipf:
+
+        for file in generated_files:
+
+            zipf.write(
+                file,
+                arcname=file.name
+            )
+
     status_text.text(
         "Processo finalizado!"
     )
+
+    return zip_path

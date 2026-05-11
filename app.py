@@ -124,7 +124,7 @@ if uploaded_file:
 
             else:
 
-                generate_filtered_files(
+                zip_path = generate_filtered_files(
                     source_file=temp_path,
                     sheet_name=selected_sheet,
                     filter_column=selected_column,
@@ -136,6 +136,15 @@ if uploaded_file:
                 st.success(
                     "Arquivos gerados com sucesso!"
                 )
+
+                with open(zip_path, "rb") as f:
+
+                    st.download_button(
+                        label="📥 Baixar Arquivos ZIP",
+                        data=f,
+                        file_name="arquivos_filtrados.zip",
+                        mime="application/zip"
+                    )
 
     except Exception as e:
 
