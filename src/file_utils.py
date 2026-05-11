@@ -11,6 +11,4 @@ def clean_filename(filename):
         filename
     )
 
-    cleaned = cleaned.strip()
-
-    return cleaned
+    return cleaned.strip()

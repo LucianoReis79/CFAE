@@ -1,6 +1,5 @@
 import streamlit as st
 import tempfile
-from pathlib import Path
 
 from src.excel_utils import (
     load_workbook_data,
@@ -30,7 +29,12 @@ uploaded_file = st.file_uploader(
 if uploaded_file:
 
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".xlsx"
+        ) as tmp:
+
             tmp.write(uploaded_file.getbuffer())
             temp_path = tmp.name
 
@@ -50,13 +54,18 @@ if uploaded_file:
             index=default_sheet_index
         )
 
-        columns = get_columns(workbook, selected_sheet)
+        columns = get_columns(
+            workbook,
+            selected_sheet
+        )
 
         default_column_index = 0
 
         for i, col in enumerate(columns):
 
-            if str(col).strip().upper() in [
+            normalized = str(col).strip().upper()
+
+            if normalized in [
                 "BASE_NUCLEO",
                 "BASE NUCLEO",
                 "BASE_NÚCLEO",
@@ -64,7 +73,7 @@ if uploaded_file:
             ]:
                 default_column_index = i
                 break
-        
+
         selected_column = st.selectbox(
             "Selecione a coluna de filtro",
             columns,
@@ -89,6 +98,7 @@ if uploaded_file:
         selected_values = []
 
         if generation_mode == "Gerar apenas itens selecionados":
+
             selected_values = st.multiselect(
                 "Selecione os valores",
                 unique_values
@@ -97,6 +107,7 @@ if uploaded_file:
         if st.button("🚀 Gerar Arquivos"):
 
             progress_bar = st.progress(0)
+
             status_text = st.empty()
 
             values_to_generate = (
@@ -106,7 +117,11 @@ if uploaded_file:
             )
 
             if not values_to_generate:
-                st.warning("Selecione ao menos um item.")
+
+                st.warning(
+                    "Selecione ao menos um item."
+                )
+
             else:
 
                 generate_filtered_files(
@@ -118,7 +133,12 @@ if uploaded_file:
                     status_text=status_text
                 )
 
-                st.success("Arquivos gerados com sucesso!")
+                st.success(
+                    "Arquivos gerados com sucesso!"
+                )
 
     except Exception as e:
-        st.error(f"Erro ao processar arquivo: {str(e)}")
+
+        st.error(
+            f"Erro ao processar arquivo: {str(e)}"
+        )

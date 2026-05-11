@@ -1,11 +1,10 @@
 import os
 import shutil
 import tempfile
-from copy import copy
+
 from pathlib import Path
 from datetime import datetime
 
-import pandas as pd
 from openpyxl import load_workbook
 
 from src.file_utils import clean_filename
@@ -15,7 +14,8 @@ def load_workbook_data(file_path):
 
     workbook = load_workbook(
         file_path,
-        data_only=False
+        data_only=False,
+        keep_vba=False
     )
 
     return workbook
@@ -35,62 +35,59 @@ def get_columns(
 
     sheet = workbook[sheet_name]
 
-    headers = [cell.value for cell in sheet[1]]
+    headers = [
+        cell.value
+        for cell in sheet[1]
+    ]
 
     if not return_unique:
         return headers
 
-    column_index = headers.index(filter_column) + 1
+    column_index = headers.index(filter_column)
 
-    values = set()
+    unique_values = set()
 
     for row in sheet.iter_rows(
         min_row=2,
         values_only=True
     ):
-        value = row[column_index - 1]
+
+        value = row[column_index]
 
         if value is not None:
-            values.add(str(value))
 
-    return sorted(values)
+            unique_values.add(
+                str(value)
+            )
 
-
-def copy_cell_style(source, target):
-
-    if source.has_style:
-        target._style = copy(source._style)
-
-    if source.number_format:
-        target.number_format = source.number_format
-
-    if source.font:
-        target.font = copy(source.font)
-
-    if source.fill:
-        target.fill = copy(source.fill)
-
-    if source.border:
-        target.border = copy(source.border)
-
-    if source.alignment:
-        target.alignment = copy(source.alignment)
-
-    if source.protection:
-        target.protection = copy(source.protection)
-
-
-def convert_formulas_to_values(sheet):
-
-    for row in sheet.iter_rows():
-        for cell in row:
-            cell.value = cell.value
+    return sorted(unique_values)
 
 
 def remove_excel_tables(sheet):
 
-    if sheet.tables:
-        sheet.tables.clear()
+    try:
+
+        table_names = list(sheet.tables.keys())
+
+        for table_name in table_names:
+            del sheet.tables[table_name]
+
+    except Exception:
+        pass
+
+
+def keep_only_selected_sheet(
+    workbook,
+    selected_sheet
+):
+
+    for sheet_name in workbook.sheetnames:
+
+        if sheet_name != selected_sheet:
+
+            workbook.remove(
+                workbook[sheet_name]
+            )
 
 
 def remove_non_matching_rows(
@@ -99,7 +96,10 @@ def remove_non_matching_rows(
     filter_value
 ):
 
-    headers = [cell.value for cell in sheet[1]]
+    headers = [
+        cell.value
+        for cell in sheet[1]
+    ]
 
     col_index = headers.index(filter_column) + 1
 
@@ -107,46 +107,19 @@ def remove_non_matching_rows(
 
     for row in range(2, sheet.max_row + 1):
 
-        cell_value = sheet.cell(
+        value = sheet.cell(
             row=row,
             column=col_index
         ).value
 
-        if str(cell_value) != str(filter_value):
+        if str(value) != str(filter_value):
+
             rows_to_delete.append(row)
 
+    # deletar em blocos reversos
     for row in reversed(rows_to_delete):
-        sheet.delete_rows(row, 1)
 
-
-def keep_only_selected_sheet(
-    workbook,
-    selected_sheet
-):
-
-    for sheet in workbook.sheetnames:
-
-        if sheet != selected_sheet:
-            std = workbook[sheet]
-            workbook.remove(std)
-
-
-def preserve_column_widths(
-    original_sheet,
-    target_sheet
-):
-
-    for col_letter, dim in original_sheet.column_dimensions.items():
-        target_sheet.column_dimensions[col_letter].width = dim.width
-
-
-def preserve_merged_cells(
-    original_sheet,
-    target_sheet
-):
-
-    for merged_range in original_sheet.merged_cells.ranges:
-        target_sheet.merge_cells(str(merged_range))
+        sheet.delete_rows(row)
 
 
 def generate_filtered_files(
@@ -158,14 +131,30 @@ def generate_filtered_files(
     status_text
 ):
 
-    downloads_path = str(Path.home() / "Downloads")
+    downloads_path = Path.home() / "Downloads"
 
     total = len(values)
 
+    # cria uma cópia limpa inicial
+    base_temp = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".xlsx"
+    )
+
+    base_temp.close()
+
+    shutil.copy(
+        source_file,
+        base_temp.name
+    )
+
     for index, value in enumerate(values):
 
-        status_text.text(f"Gerando arquivo: {value}")
+        status_text.text(
+            f"Gerando arquivo: {value}"
+        )
 
+        # cria cópia temporária individual
         temp_copy = tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".xlsx"
@@ -173,14 +162,16 @@ def generate_filtered_files(
 
         temp_copy.close()
 
-        shutil.copy(source_file, temp_copy.name)
+        shutil.copy(
+            base_temp.name,
+            temp_copy.name
+        )
 
         workbook = load_workbook(
             temp_copy.name,
-            data_only=True
+            data_only=True,
+            keep_vba=False
         )
-
-        original_sheet = workbook[sheet_name]
 
         keep_only_selected_sheet(
             workbook,
@@ -188,16 +179,6 @@ def generate_filtered_files(
         )
 
         sheet = workbook[sheet_name]
-
-        preserve_column_widths(
-            original_sheet,
-            sheet
-        )
-
-        preserve_merged_cells(
-            original_sheet,
-            sheet
-        )
 
         remove_non_matching_rows(
             sheet,
@@ -207,28 +188,36 @@ def generate_filtered_files(
 
         remove_excel_tables(sheet)
 
-        convert_formulas_to_values(sheet)
-
         current_date = datetime.now()
 
         month = current_date.strftime("%m")
+
         year = current_date.strftime("%Y")
 
-        safe_value = clean_filename(str(value))
+        safe_value = clean_filename(
+            str(value)
+        )
 
         filename = (
             f"{filter_column}_{safe_value}_{month}_{year}.xlsx"
         )
 
-        final_path = os.path.join(
-            downloads_path,
-            filename
-        )
+        final_path = downloads_path / filename
 
         workbook.save(final_path)
 
+        workbook.close()
+
         os.remove(temp_copy.name)
 
-        progress = int(((index + 1) / total) * 100)
+        progress = int(
+            ((index + 1) / total) * 100
+        )
 
         progress_bar.progress(progress)
+
+    os.remove(base_temp.name)
+
+    status_text.text(
+        "Processo finalizado!"
+    )
