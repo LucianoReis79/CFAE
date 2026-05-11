@@ -1,62 +1,124 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
-from utils.excel_handler import (
-    obter_abas, obter_colunas, obter_valores_unicos, 
-    gerar_arquivos_filtrados, verificar_pasta_downloads
+import tempfile
+from pathlib import Path
+
+from src.excel_utils import (
+    load_workbook_data,
+    get_sheet_names,
+    get_columns,
+    generate_filtered_files
 )
 
-st.set_page_config(page_title="CFAE - Gerador de Planilhas", layout="wide")
+st.set_page_config(
+    page_title="Gerador de Excel Filtrado",
+    layout="centered"
+)
 
-def main():
-    st.title("📂 Gerador Automático de Excel Filtrado")
-    st.markdown("---")
+st.title("📊 Gerador Automático de Arquivos Excel")
 
-    uploaded_file = st.file_uploader("Upload da planilha (.xlsx ou .xlsm)", type=["xlsx", "xlsm"])
+st.markdown(
+    """
+    Faça upload de uma planilha Excel e gere arquivos filtrados automaticamente.
+    """
+)
 
-    if uploaded_file:
-        try:
-            # 1. Seleção da Aba
-            abas = obter_abas(uploaded_file)
-            aba_padrao_idx = abas.index("Ativos") if "Ativos" in abas else 0
-            aba_selecionada = st.selectbox("Selecione a aba:", abas, index=aba_padrao_idx)
-            
-            # 2. Seleção da Coluna
-            colunas = obter_colunas(uploaded_file, aba_selecionada)
-            # Ajustado para o nome com acento conforme seu erro anterior
-            nome_coluna_alvo = "BASE_NÚCLEO" 
-            col_padrao_idx = colunas.index(nome_coluna_alvo) if nome_coluna_alvo in colunas else 0
-            coluna_filtro = st.selectbox("Selecione a coluna de filtro:", colunas, index=col_padrao_idx)
+uploaded_file = st.file_uploader(
+    "Selecione um arquivo Excel",
+    type=["xlsx", "xlsm"]
+)
 
-            # 3. Filtros de Valores
-            valores_unicos = obter_valores_unicos(uploaded_file, aba_selecionada, coluna_filtro)
-            opcao = st.radio("O que deseja gerar?", ["Todos os itens", "Selecionar itens específicos"])
-            
-            itens_processar = valores_unicos
-            if opcao == "Selecionar itens específicos":
-                itens_processar = st.multiselect("Selecione os valores únicos:", valores_unicos)
+if uploaded_file:
 
-            if st.button("🚀 Iniciar Geração"):
-                if not itens_processar:
-                    st.warning("Selecione pelo menos um item.")
-                    return
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(uploaded_file.getbuffer())
+            temp_path = tmp.name
 
-                progresso = st.progress(0)
-                status = st.empty()
-                pasta = verificar_pasta_downloads()
-                
-                sucesso, erros = gerar_arquivos_filtrados(
-                    uploaded_file, aba_selecionada, coluna_filtro, 
-                    itens_processar, pasta, progresso, status
+        workbook = load_workbook_data(temp_path)
+
+        sheet_names = get_sheet_names(workbook)
+
+        default_sheet_index = (
+            sheet_names.index("Ativos")
+            if "Ativos" in sheet_names
+            else 0
+        )
+
+        selected_sheet = st.selectbox(
+            "Selecione a aba",
+            sheet_names,
+            index=default_sheet_index
+        )
+
+        columns = get_columns(workbook, selected_sheet)
+
+        default_column_index = 0
+
+        for i, col in enumerate(columns):
+
+            if str(col).strip().upper() in [
+                "BASE_NUCLEO",
+                "BASE NUCLEO",
+                "BASE_NÚCLEO",
+                "BASE NÚCLEO"
+            ]:
+                default_column_index = i
+                break
+        
+        selected_column = st.selectbox(
+            "Selecione a coluna de filtro",
+            columns,
+            index=default_column_index
+        )
+
+        unique_values = get_columns(
+            workbook,
+            selected_sheet,
+            return_unique=True,
+            filter_column=selected_column
+        )
+
+        generation_mode = st.radio(
+            "Modo de geração",
+            [
+                "Gerar todos os arquivos",
+                "Gerar apenas itens selecionados"
+            ]
+        )
+
+        selected_values = []
+
+        if generation_mode == "Gerar apenas itens selecionados":
+            selected_values = st.multiselect(
+                "Selecione os valores",
+                unique_values
+            )
+
+        if st.button("🚀 Gerar Arquivos"):
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            values_to_generate = (
+                unique_values
+                if generation_mode == "Gerar todos os arquivos"
+                else selected_values
+            )
+
+            if not values_to_generate:
+                st.warning("Selecione ao menos um item.")
+            else:
+
+                generate_filtered_files(
+                    source_file=temp_path,
+                    sheet_name=selected_sheet,
+                    filter_column=selected_column,
+                    values=values_to_generate,
+                    progress_bar=progress_bar,
+                    status_text=status_text
                 )
 
-                if sucesso:
-                    st.success(f"✅ Concluído! Arquivos salvos em: {pasta}")
-                if erros:
-                    st.error(f"❌ Erros em alguns itens: {erros}")
+                st.success("Arquivos gerados com sucesso!")
 
-        except Exception as e:
-            st.error(f"Erro na interface: {str(e)}")
-
-if __name__ == "__main__":
-    main()
+    except Exception as e:
+        st.error(f"Erro ao processar arquivo: {str(e)}")
